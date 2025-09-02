@@ -13,9 +13,9 @@ else:
     with open('list.json', 'w', encoding='utf-8') as f:
         json.dump(apilist.json(), f, ensure_ascii=False, indent=4)
 
-
 #API key
-key = "0D42AB8DF7C4200A9F811E08E4D5FF41"
+key = open('key.txt')
+key = key.read()
 
 playerSummary = requests.get(f'http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={key}&steamids=76561198315232228')
 
