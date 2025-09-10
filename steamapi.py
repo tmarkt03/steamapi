@@ -1,10 +1,19 @@
 import requests
 import json
+import mysql.connector
 
 #http://api.steampowered.com/<interface name>/<method name>/v<version>/?key=<api key>&format=<format>
 
 #List of API methods
 apilist = requests.get(f'https://api.steampowered.com/ISteamWebAPIUtil/GetSupportedAPIList/v0001/')
+
+db = mysql.connector.connect(
+    host = '127.0.0.1',
+    user = 'root',
+    password = 'root',
+    database = 'steam'
+)
+dbcursor = db.cursor()
 
 #Checks if the request is valid and writes to apilist.json
 if apilist.status_code != 200:
