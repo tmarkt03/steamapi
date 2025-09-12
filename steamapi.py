@@ -4,10 +4,6 @@ import mysql.connector
 
 #http://api.steampowered.com/<interface name>/<method name>/v<version>/?key=<api key>&format=<format>
 
-#List of API methods
-apilist = requests.get(f'https://api.steampowered.com/ISteamWebAPIUtil/GetSupportedAPIList/v0001/')
-
-
 #Making a connection to the database
 db = mysql.connector.connect(
     host = '127.0.0.1',
@@ -17,59 +13,75 @@ db = mysql.connector.connect(
 )
 dbcursor = db.cursor()
 
-#Checks if the request is valid and writes to apilist.json
-if apilist.status_code != 200:
-    print(f'Error: {apilist.status_code}. Failed to get info from {apilist.url}')
-else:
-    with open('list.json', 'w', encoding='utf-8') as f:
-        json.dump(apilist.json(), f, ensure_ascii=False, indent=4)
-
 #API key
 key = open('key.txt')
 key = key.read()
 
 #SteamID to be used
 steamid = 76561198315232228
+idlist = []
+idlist.append(steamid)
+       
 
-playerSummary = requests.get(f'http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={key}&steamids={steamid}')
-
-#Checking in case the request failed
-if playerSummary.status_code != 200:
-    print(f'Error: {playerSummary.status_code} Failed to get info from {playerSummary.url}')
+friendlist = requests.get(f'http://api.steampowered.com/ISteamUser/GetFriendList/v0001/?key={key}&steamid={steamid}&relationship=friend')
+if friendlist.status_code != 200:
+    print(f'Error: {friendlist.status_code}. Failed to get info from {friendlist.url}')
 else:
-    playerData = playerSummary.json()
-    #This is the userdata that will be used in the SQL query
-    dbinput = (int(playerData["response"]["players"][0]["steamid"]), int(playerData["response"]["players"][0]["communityvisibilitystate"]), int(playerData["response"]["players"][0]["profilestate"]), str(playerData["response"]["players"][0]["personaname"]), int(playerData["response"]["players"][0]["commentpermission"]), str(playerData["response"]["players"][0]["profileurl"]), str(playerData["response"]["players"][0]["avatar"]), str(playerData["response"]["players"][0]["avatarmedium"]), str(playerData["response"]["players"][0]["avatarfull"]), int(playerData["response"]["players"][0]["lastlogoff"]), int(playerData["response"]["players"][0]["personastate"]))
+    friendData = friendlist.json()
+    friendData = friendData['friendslist']['friends']
+    for i in range(len(friendData)):
+        if int(friendData[i]['steamid']) not in idlist:
+            idlist.append(int(friendData[i]["steamid"]))
+        
+    with open('friendlist.json', 'w', encoding='utf-8') as f:
+        json.dump(friendlist.json(), f, ensure_ascii=False, indent=4)
 
-    #Checks if the steamID is in the database
-    #       >if yes then update record
-    #       >if no then create new record
-    dbcursor.execute(f'SELECT * FROM publicuser WHERE steamid = {dbinput[0]}')
-    if len(dbcursor.fetchall()) > 0:
-        print(f'SteamID already in database ({dbinput[0]}). Updating record.')
-        #SQL query that updates the record
-        dbcursor.execute(f"UPDATE publicuser SET communityvisibilitystate={dbinput[1]}, profilestate={dbinput[2]}, personaname='{dbinput[3]}', commentpermission={dbinput[4]}, profileurl='{dbinput[5]}', avatar='{dbinput[6]}', avatarmedium='{dbinput[7]}', avatarfull='{dbinput[8]}', lastlogoff={dbinput[9]}, personastate={dbinput[10]} WHERE steamid={dbinput[0]}")
+i = 0
+j= 0
+
+for i in range(len(idlist)):
+    dbinput = [None] * 11
+    #for j in range(11):
+    #        dbinput[j] = None
+    playerSummary = requests.get(f'http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={key}&steamids={idlist[i]}')
+    #Checking in case the request failed
+    if playerSummary.status_code != 200:
+        print(f'Error: {playerSummary.status_code} Failed to get info from {playerSummary.url}')
     else:
-        print(f'New SteamID detected ({dbinput[0]}). Creating record.')
-        #SQL query that creates the new record
-        dbcursor.execute(f'INSERT INTO publicuser (steamid, communityvisibilitystate, profilestate, personaname, commentpermission, profileurl, avatar, avatarmedium, avatarfull, lastlogoff, personastate) VALUES {dbinput}')
-    db.commit()
-    
-    #Export the request as playerSummary.json
-    #DEBUG ONLY
-    with open('playerSummary.json', 'w', encoding='utf-8') as f:
-        json.dump(playerSummary.json(), f, ensure_ascii=False, indent=4)
+        playerData = playerSummary.json()
+        #This is the userdata that will be used in the SQL query
+        dbinput =  (int(playerData["response"]["players"][0]["steamid"]), playerData["response"]["players"][0]["personaname"], playerData["response"]["players"][0]["profileurl"], playerData["response"]["players"][0]["avatar"], playerData["response"]["players"][0]["avatarmedium"], playerData["response"]["players"][0]["avatarfull"], playerData["response"]["players"][0]["personastate"], bool(playerData["response"]["players"][0]["communityvisibilitystate"]), bool(playerData["response"]["players"][0]["profilestate"]), int(playerData["response"]["players"][0]["lastlogoff"]))
         
+        try:
+            if bool(playerData["response"]["players"][0]["commentpermission"]):
+                commentpermission = 1
+            #dbinput =  (int(playerData["response"]["players"][0]["steamid"]), playerData["response"]["players"][0]["personaname"], playerData["response"]["players"][0]["profileurl"], playerData["response"]["players"][0]["avatar"], playerData["response"]["players"][0]["avatarmedium"], playerData["response"]["players"][0]["avatarfull"], playerData["response"]["players"][0]["personastate"], bool(playerData["response"]["players"][0]["communityvisibilitystate"]), bool(playerData["response"]["players"][0]["profilestate"]), int(playerData["response"]["players"][0]["lastlogoff"]), playerData["response"]["players"][0]["commentpermission"])
+        except:
+            commentpermission = 0
+        templist = list(dbinput)
+        templist.append(commentpermission)
+        dbinput = tuple(templist)
+        
+        
+        
+        #Checks if the steamID is in the database
+        #       >if yes then update record
+        #       >if no then create new record
+        dbcursor.execute(f'SELECT * FROM publicusers WHERE steamid = {dbinput[0]}')
+        if len(dbcursor.fetchall()) > 0:
+            print(f'SteamID already in database ({dbinput[0]}). Updating record.')
+            #SQL query that updates the record
+            update = "UPDATE publicusers SET personaname=%s, profileurl=%s, avatar=%s, avatarmedium=%s, avatarfull=%s, personastate=%s, communityvisibilitystate=%s, profilestate=%s, lastlogoff=%s, commentpermission=%s WHERE steamid=%s"
+            tempupd = (str(dbinput[1]), dbinput[2], dbinput[3], dbinput[4], dbinput[5], dbinput[6], dbinput[7], dbinput[8], dbinput[9], dbinput[10], dbinput[0])
+            dbcursor.execute(update, tempupd)
+            #dbcursor.execute("UPDATE publicusers SET personaname=%s, profileurl='%s', avatar='%s', avatarmedium='%s', avatarfull='%s', personastate=%s, communityvisibilitystate=%s, profilestate=%s, lastlogoff=%s, commentpermission=%s WHERE steamid=%s" % (dbinput[2], dbinput[3], dbinput[4], dbinput[5], dbinput[6], dbinput[7], dbinput[8], dbinput[9], dbinput[10], dbinput[0]))
+        else:
+            print(f'New SteamID detected ({dbinput[0]}). Creating record.')
+            #SQL query that creates the new record
+            dbcursor.execute(f'INSERT INTO publicusers (steamid, personaname, profileurl, avatar, avatarmedium, avatarfull, personastate, communityvisibilitystate, profilestate, lastlogoff, commentpermission) VALUES {dbinput}')
+        db.commit()
 
-#clientver = requests.get('http://api.steampowered.com/IGCVersion_1046930/GetClientVersion/v0001/')
-#
-#if clientver.status_code != 200:
-#    print(f'Error: {clientver.status_code}. Failed to get info from {clientver.url}')
-#else:
-#    with open('clientver.json', 'w', encoding='utf-8') as f:
-#        json.dump(clientver.json(), f, ensure_ascii=False, indent=4)
-#        clientData = clientver.json()
-#        clientDict = clientData["result"]
-#        clientArray = [clientDict["success"], clientDict["min_allowed_version"], clientDict["active_version"]]
-        
-        
+        #Export the request as playerSummary.json
+        #DEBUG ONLY
+        #with open('playerSummary.json', 'w', encoding='utf-8') as f:
+        #    json.dump(playerSummary.json(), f, ensure_ascii=False, indent=4)
