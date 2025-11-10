@@ -1,9 +1,10 @@
 import requests
 import json
-import mysql.connector
 import time
 import sys
-import asyncio
+import multiprocessing
+
+import psycopg
 
 #http://api.steampowered.com/<interface name>/<method name>/v<version>/?key=<api key>&format=<format>
 
@@ -14,45 +15,51 @@ class Requests:
     idlist.append(76561198315232228)
     calls = 0
     maxcalls = 300
-    GetAppList = 'https://api.steampowered.com/ISteamApps/GetAppList/v2/'
-    GetFriendList = f'http://api.steampowered.com/ISteamUser/GetFriendList/v0001/?key={key}&steamid={idlist[calls]}&relationship=friend' #TODO Fix idlist[calls]
 
-async def GetAppList():
-    try:
-        Requests.calls += 1
-        req = requests.get(Requests.GetAppList)
-    except:
-        print('Failed to get response from steam')
+#SHOWCASE
+def updatedb(value):
+    with psycopg.connect("dbname=steam user=postgres") as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE publicusers SET personaname=%s, profileurl=%s, avatar=%s, avatarmedium=%s, avatarfull=%s, personastate=%s, communityvisibilitystate=%s, profilestate=%s, lastlogoff=%s, commentpermission=%s WHERE steamid=%s")
 
-    json = req.json()
-    appid = []
-    name = []
-    for i in range (len(json['applist']['apps'])):
-        appid.append(json['applist']['apps'][i]['appid'])
-        name.append(json['applist']['apps'][i]['name'])
-        
-    applist = {
-        'appid': appid,
-        'name' : name
-    }
-    
-    for i in range(len(applist['appid'])):
-        try:
-            dbcursor.execute(f'SELECT appid FROM applist WHERE appid = {applist["appid"][i]}')
-        except:
-            print('sql error in applist')
-        try: 
-            x = dbcursor.fetchone()[0]
-        except:
-            dbcursor.execute(f'INSERT INTO applist (appid, name) VALUES {applist["appid"][i], applist["name"][i]}')
-    db.commit()
+
+
+def GetAppList():
+    with psycopg.connect("dbname=postgres user=postgres") as conn:
+        with conn.cursor() as cur:
+            try:
+                req = requests.get('https://api.steampowered.com/ISteamApps/GetAppList/v2/')
+                Requests.calls += 1
+            except:
+                print('Failed to get response from steam')
+
+            json = req.json()
+            appid = []
+            name = []
+            for i in range (len(json['applist']['apps'])):
+                appid.append(json['applist']['apps'][i]['appid'])
+                name.append(json['applist']['apps'][i]['name'])
+
+            applist = {
+                'appid': appid,
+                'name' : name
+            }
+            for i in range(len(applist['appid'])):
+                cur.execute("SELECT appid FROM applist WHERE appid = %s", (applist['appid'][i],))
+                #print('sql error in applist')
+                #cur.execute(f'INSERT INTO applist (appid, name) VALUES {applist["appid"][i], applist["name"][i]}')
+                if cur.fetchone() == None:
+                    temp1 = applist["appid"][i]
+                    temp2 = applist["name"][i]
+                    cur.execute("INSERT INTO applist (appid, name) VALUES (%s, %s);", (applist["appid"][i], applist["name"][i]))
+            conn.commit()
     
     
 def GetFriendList():
     while Requests.calls + (len(Requests.idlist) // 100) <= Requests.maxcalls:
         #try:
+        req = requests.get(f'http://api.steampowered.com/ISteamUser/GetFriendList/v0001/?key={Requests.key}&steamid={Requests.idlist[Requests.calls]}&relationship=friend')
         Requests.calls += 1
-        req = requests.get(Requests.GetFriendList)
         #except:
             #print('Request failed')
         if req.status_code == 401:
@@ -75,20 +82,12 @@ def GetFriendList():
             for i in range(len(json)):
                 if int(json[i]['steamid']) not in Requests.idlist:
                     Requests.idlist.append(int(json[i]["steamid"]))
+                    print(len(Requests.idlist))
     return(Requests.idlist, len(Requests.idlist), Requests.calls)
-        
-        
 
 
 if __name__ == '__main__':
     #Making a connection to the database
-    db = mysql.connector.connect(
-        host = '127.0.0.1',
-        user = 'root',
-        password = 'root',
-        database = 'steam'
-    )
-    dbcursor = db.cursor()
     #API key
     #key = open('key.txt')
     #key = key.read()
@@ -105,7 +104,7 @@ if __name__ == '__main__':
     statnew = 0
     statround = [0, 0, 0]
     
-    #asyncio.run(GetAppList())
+    GetFriendList()
     
     #Crawl all the public friendslists and adds them to idlist if they are not in it yet
     #while calls + (len(idlist) // 100) <= maxcalls:
@@ -144,7 +143,7 @@ if __name__ == '__main__':
     #        for i in range(len(friendData)):
     #            if int(friendData[i]['steamid']) not in idlist:
     #                idlist.append(int(friendData[i]["steamid"]))
-    print(GetFriendList())
+    #print(GetFriendList())
 
     #while 0 < len(idlist) and calls < maxcalls:
     #    time.sleep(0.05)
@@ -228,7 +227,6 @@ if __name__ == '__main__':
     #                temp = list(dbinput)
     #                temp.append(commentpermission)
     #                dbinput = tuple(temp)
-#
     #            #Checks if the steamID is in the database
     #            #       >if yes then update record
     #            #       >if no then create new record
